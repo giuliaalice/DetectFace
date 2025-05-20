@@ -1,3 +1,7 @@
+!git clone https://github.com/IIT-PAVIS/SPIGA.git
+import sys
+sys.path.append('./SPIGA')
+
 import os
 import cv2
 import csv
@@ -36,53 +40,43 @@ while True:
         break
 
     # Save frame
-    frame_path = os.path.join(FRAME_DIR, f"frame_{frame_idx:04d}.jpg")
+    frame_path = os.path.join(FRAME_DIR, f'frame_{frame_idx:04d}.jpg')
     cv2.imwrite(frame_path, frame)
 
-    # Convert to RGB
-    img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    pil_img = Image.fromarray(img_rgb)
+    # Convert to PIL for MTCNN
+    pil_img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+    box = mtcnn.detect(pil_img)[0]
 
-    # === FACE DETECTION ===
-    box, prob = mtcnn.detect(pil_img)
-    face_landmarks = None
     if box is not None:
-        x0, y0, x1, y1 = map(int, box[0])
-        face_crop = frame[y0:y1, x0:x1]
-        face_path = os.path.join(FACE_DIR, f"face_{frame_idx:04d}.jpg")
-        cv2.imwrite(face_path, face_crop)
+        box = box[0]  # best face only
+        x0, y0, x1, y1 = map(int, box)
+        face = frame[y0:y1, x0:x1]
+        face_path = os.path.join(FACE_DIR, f'face_{frame_idx:04d}.jpg')
+        cv2.imwrite(face_path, face)
 
-        # Placeholder for SPIGA (you would call SPIGA here to get facial landmarks)
-        face_landmarks = [0]*97*2  # 97 landmarks (x, y)
+    # Pose estimation
+    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    results = pose.process(rgb_frame)
 
-    # === POSE DETECTION ===
-    results = pose.process(img_rgb)
-    pose_landmarks = []
+    # Extract keypoints
+    keypoints = []
     if results.pose_landmarks:
         for lm in results.pose_landmarks.landmark:
-            pose_landmarks.extend([lm.x, lm.y, lm.z])
+            keypoints.extend([lm.x, lm.y, lm.z, lm.visibility])
     else:
-        pose_landmarks = [0]*33*3  # 33 joints (x, y, z)
+        keypoints = [0.0] * (33 * 4)  # 33 pose landmarks * 4 values
 
-    # === Save features ===
-    row = [frame_idx]
-    row += face_landmarks if face_landmarks else [0]*97*2
-    row += pose_landmarks
-    features_list.append(row)
-
+    features_list.append([frame_idx] + keypoints)
     frame_idx += 1
 
 cap.release()
 
 # === Save to CSV ===
 print("[INFO] Saving features to CSV...")
-header = ["frame"]
-header += [f"face_{i}_{xy}" for i in range(97) for xy in ['x', 'y']]
-header += [f"pose_{i}_{xyz}" for i in range(33) for xyz in ['x', 'y', 'z']]
-
-with open(CSV_PATH, 'w', newline='') as f:
-    writer = csv.writer(f)
+with open(CSV_PATH, 'w', newline='') as csvfile:
+    writer = csv.writer(csvfile)
+    header = ['frame_idx'] + [f'pose_{i}_{coord}' for i in range(33) for coord in ['x', 'y', 'z', 'v']]
     writer.writerow(header)
     writer.writerows(features_list)
 
-print("[DONE] Feature extraction completed.")
+print("[DONE] Feature extraction complete.")
