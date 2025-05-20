@@ -1,8 +1,9 @@
-streamlit
-opencv-python
-numpy
-torch
-tqdm
-facenet-pytorch
-mediapipe
-Pillow
+streamlit==1.35.0
+opencv-python-headless==4.9.0.80
+numpy==1.24.4
+torch==2.0.1
+tqdm==4.66.4
+facenet-pytorch==2.5.2
+mediapipe==0.10.9
+Pillow==9.5.0
+
