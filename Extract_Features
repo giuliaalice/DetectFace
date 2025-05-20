@@ -1,0 +1,88 @@
+import os
+import cv2
+import csv
+import torch
+import numpy as np
+from PIL import Image
+from tqdm import tqdm
+from facenet_pytorch import MTCNN
+import mediapipe as mp
+
+# === Config ===
+VIDEO_PATH = '../data/input_video.mp4'
+FRAME_DIR = '../data/frames/'
+FACE_DIR = '../data/faces/'
+CSV_PATH = '../data/features.csv'
+
+# === Create folders ===
+os.makedirs(FRAME_DIR, exist_ok=True)
+os.makedirs(FACE_DIR, exist_ok=True)
+
+# === Load models ===
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+mtcnn = MTCNN(keep_all=False, device=device)  # only best face
+mp_pose = mp.solutions.pose
+pose = mp_pose.Pose(static_image_mode=True)
+
+# === Open video ===
+cap = cv2.VideoCapture(VIDEO_PATH)
+frame_idx = 0
+features_list = []
+
+print("[INFO] Processing video...")
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    # Save frame
+    frame_path = os.path.join(FRAME_DIR, f"frame_{frame_idx:04d}.jpg")
+    cv2.imwrite(frame_path, frame)
+
+    # Convert to RGB
+    img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    pil_img = Image.fromarray(img_rgb)
+
+    # === FACE DETECTION ===
+    box, prob = mtcnn.detect(pil_img)
+    face_landmarks = None
+    if box is not None:
+        x0, y0, x1, y1 = map(int, box[0])
+        face_crop = frame[y0:y1, x0:x1]
+        face_path = os.path.join(FACE_DIR, f"face_{frame_idx:04d}.jpg")
+        cv2.imwrite(face_path, face_crop)
+
+        # Placeholder for SPIGA (you would call SPIGA here to get facial landmarks)
+        face_landmarks = [0]*97*2  # 97 landmarks (x, y)
+
+    # === POSE DETECTION ===
+    results = pose.process(img_rgb)
+    pose_landmarks = []
+    if results.pose_landmarks:
+        for lm in results.pose_landmarks.landmark:
+            pose_landmarks.extend([lm.x, lm.y, lm.z])
+    else:
+        pose_landmarks = [0]*33*3  # 33 joints (x, y, z)
+
+    # === Save features ===
+    row = [frame_idx]
+    row += face_landmarks if face_landmarks else [0]*97*2
+    row += pose_landmarks
+    features_list.append(row)
+
+    frame_idx += 1
+
+cap.release()
+
+# === Save to CSV ===
+print("[INFO] Saving features to CSV...")
+header = ["frame"]
+header += [f"face_{i}_{xy}" for i in range(97) for xy in ['x', 'y']]
+header += [f"pose_{i}_{xyz}" for i in range(33) for xyz in ['x', 'y', 'z']]
+
+with open(CSV_PATH, 'w', newline='') as f:
+    writer = csv.writer(f)
+    writer.writerow(header)
+    writer.writerows(features_list)
+
+print("[DONE] Feature extraction completed.")
